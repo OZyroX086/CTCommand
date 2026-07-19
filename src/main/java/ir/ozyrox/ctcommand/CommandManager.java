@@ -39,7 +39,7 @@ public class CommandManager {
             PluginCommand pc = plugin.getCommand(cmd.name());
             if (pc == null) {
                 plugin.getLogger().warning("Command " + cmd.name() + " is not defined in plugin.yml");
-                return;
+                continue;
             }
 
             Method completerMethod = findCompleter(instance.getClass(), cmd.name());
@@ -189,7 +189,7 @@ public class CommandManager {
         if (!(sender instanceof Player)) return false;
         Player player = (Player) sender;
 
-        String key = player.getUniqueId().toString();
+        String key = player.getUniqueId() + ":" + cooldownKey;
         long now = System.currentTimeMillis();
         long lastUse = cooldowns.getOrDefault(key, 0L);
         long elapsedSeconds = (now - lastUse) / 1000;
