@@ -126,7 +126,7 @@ public class CommandManager {
             boolean hasCommandPermission = true;
             if (commandPermissions != null) {
                 for (HasPermission node : commandPermissions) {
-                    if (!sender.hasPermission(node.permissionNode())) {
+                    if (!sender.hasPermission(node.value())) {
                         hasCommandPermission = false;
                     }
                 }
@@ -213,7 +213,7 @@ public class CommandManager {
         boolean hasSubCommandPermission = true;
         if (subCommandPermissions != null) {
             for (HasPermission node : subCommandPermissions) {
-                if (!sender.hasPermission(node.permissionNode())) {
+                if (!sender.hasPermission(node.value())) {
                     hasSubCommandPermission = false;
                 }
             }

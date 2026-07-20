@@ -33,7 +33,7 @@ Add the dependency:
 <dependency>
     <groupId>com.github.ozyrox086</groupId>
     <artifactId>ctcommand</artifactId>
-    <version>v1.0.1</version>
+    <version>v1.0.2</version>
 </dependency>
 ```
 
@@ -111,7 +111,7 @@ public class TeleportCommand extends CommandBase {
 
     @Command(name = "tp", cooldown = 3)
     @PlayerOnly
-    @HasPermission(permissionNode = "myplugin.tp")
+    @HasPermission("myplugin.tp")
     public void teleport(CommandSender sender, String[] args) {
         if (args.length < 1) {
             sender.sendMessage("§cUsage: /tp <player>");
@@ -148,7 +148,7 @@ Put `@Command` on the **class**. Each method inside becomes a subcommand via `@S
 public class EconomyCommand extends CommandBase {
 
     @SubCommand(value = "give", minArgs = 2, usage = "/eco give <player> <amount>", cooldown = 10)
-    @HasPermission(permissionNode = "myplugin.eco.give")
+    @HasPermission("myplugin.eco.give")
     public void give(CommandSender sender, String[] args) {
         // minArgs already validated by the manager before this runs
         sender.sendMessage("§a" + args[1] + " coins given to " + args[0]);
@@ -167,8 +167,8 @@ public class EconomyCommand extends CommandBase {
         return List.of();
     }
 
-    @SubCommand(value = "take")
-    @HasPermission(permissionNode = "myplugin.eco.take")
+    @SubCommand("take")
+    @HasPermission("myplugin.eco.take")
     @ConsoleOnly
     public void take(CommandSender sender, String[] args) {
         sender.sendMessage("§cCoins taken.");
@@ -210,7 +210,7 @@ These are placed on methods (or on the class for subcommand-style commands, wher
 
 | Annotation | Target | Description |
 |---|---|---|
-| `@HasPermission(permissionNode = "...")` | Method / class | Requires the sender to have the given permission node. Repeatable — all specified permissions must be held. |
+| `@HasPermission("...")` | Method / class | Requires the sender to have the given permission node. Repeatable — all specified permissions must be held. |
 | `@PlayerOnly` | Method / class | Restricts the command to players only. Console senders are rejected with `onPlayerOnly`. |
 | `@ConsoleOnly` | Method | Restricts the command to console only. Players are rejected with `onConsoleOnly`. |
 | `@OpOnly` | Method | Restricts the command to server operators only. Non-ops are rejected with `onNoPermission`. |
