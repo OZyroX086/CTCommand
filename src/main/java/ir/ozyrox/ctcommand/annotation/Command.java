@@ -9,7 +9,10 @@ import java.lang.annotation.Target;
 @Target(ElementType.METHOD)
 public @interface Command {
     String name();
+
     String permission() default "";
+
     boolean playerOnly() default false;
+
     int cooldown() default 0;
 }
