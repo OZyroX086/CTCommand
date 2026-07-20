@@ -9,9 +9,10 @@ import java.lang.annotation.Target;
 @Target(ElementType.METHOD)
 public @interface SubCommand {
     String value();
-    String permission() default "";
+
     String usage() default "";
+
     int minArgs() default 0;
-    boolean playerOnly() default false;
+
     int cooldown() default 0;
 }

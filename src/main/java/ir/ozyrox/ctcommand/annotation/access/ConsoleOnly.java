@@ -1,4 +1,4 @@
-package ir.ozyrox.ctcommand.annotation;
+package ir.ozyrox.ctcommand.annotation.access;
 
 import java.lang.annotation.ElementType;
 import java.lang.annotation.Retention;
@@ -7,8 +7,5 @@ import java.lang.annotation.Target;
 
 @Retention(RetentionPolicy.RUNTIME)
 @Target(ElementType.METHOD)
-public @interface Command {
-    String name();
-
-    int cooldown() default 0;
+public @interface ConsoleOnly {
 }
