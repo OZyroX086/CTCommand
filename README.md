@@ -33,7 +33,7 @@ Add the dependency:
 <dependency>
     <groupId>com.github.ozyrox086</groupId>
     <artifactId>ctcommand</artifactId>
-    <version>v1.0.2</version>
+    <version>v1.0.3</version>
 </dependency>
 ```
 
