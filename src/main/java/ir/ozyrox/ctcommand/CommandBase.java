@@ -4,19 +4,23 @@ import org.bukkit.command.CommandSender;
 
 public abstract class CommandBase {
 
-    public void onNoPermission(CommandSender sender){
+    protected void onNoPermission(CommandSender sender) {
         sender.sendMessage("You don't have permission to use this command");
     }
 
-    public void onInvalidUsage(CommandSender sender, String usage){
+    protected void onInvalidUsage(CommandSender sender, String usage){
         sender.sendMessage("Invalid usage: " + usage);
     }
 
-    public void onPlayerOnly(CommandSender sender){
+    protected void onPlayerOnly(CommandSender sender) {
         sender.sendMessage("Player Only");
     }
 
-    public void onCooldown(CommandSender sender, long secondsLeft){
+    protected void onConsoleOnly(CommandSender sender) {
+        sender.sendMessage("This is for console senders only");
+    }
+
+    protected void onCooldown(CommandSender sender, long secondsLeft){
         sender.sendMessage("wait " + secondsLeft + "s before use again");
     }
 }
