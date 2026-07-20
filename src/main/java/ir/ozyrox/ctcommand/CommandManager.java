@@ -224,7 +224,8 @@ public class CommandManager {
 
     private Method findCompleter(Class<?> clazz, String name) {
         for (Method method : clazz.getDeclaredMethods()) {
-            if (method.getAnnotation(Completer.class).value().equalsIgnoreCase(name)) {
+            Completer completer = method.getAnnotation(Completer.class);
+            if (completer != null && completer.value().equalsIgnoreCase(name)) {
                 return method;
             }
         }
