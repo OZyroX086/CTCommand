@@ -1,6 +1,6 @@
 # ctcommand
 
-A lightweight annotation-based command framework for Paper/Spigot plugins. Define commands with simple annotations instead of writing boilerplate `CommandExecutor` classes by hand.
+A lightweight annotation-based command framework for Paper/Folia/Spigot plugins. Define commands with simple annotations instead of writing boilerplate `CommandExecutor` classes by hand.
 
 ## Features
 
@@ -33,7 +33,7 @@ Add the dependency:
 <dependency>
     <groupId>com.github.ozyrox086</groupId>
     <artifactId>ctcommand</artifactId>
-    <version>v1.0.4</version>
+    <version>v1.1.0</version>
 </dependency>
 ```
 
@@ -144,7 +144,7 @@ Put `@Command` on the **class**. Each method inside becomes a subcommand via `@S
 
 ```java
 @Command(name = "eco", cooldown = 5)
-@HasPermission(permissionNode = "myplugin.eco")
+@HasPermission("myplugin.eco")
 public class EconomyCommand extends CommandBase {
 
     @SubCommand(value = "give", minArgs = 2, usage = "/eco give <player> <amount>", cooldown = 10)

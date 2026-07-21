@@ -7,6 +7,10 @@ import ir.ozyrox.ctcommand.annotation.access.ConsoleOnly;
 import ir.ozyrox.ctcommand.annotation.access.HasPermission;
 import ir.ozyrox.ctcommand.annotation.access.OpOnly;
 import ir.ozyrox.ctcommand.annotation.access.PlayerOnly;
+import ir.ozyrox.ctcommand.models.CommandData;
+import ir.ozyrox.ctcommand.models.CooldownEntry;
+import ir.ozyrox.ctcommand.models.SubCommandData;
+import org.bukkit.Bukkit;
 import org.bukkit.command.CommandSender;
 import org.bukkit.command.ConsoleCommandSender;
 import org.bukkit.command.PluginCommand;
@@ -16,15 +20,19 @@ import org.bukkit.plugin.java.JavaPlugin;
 import java.lang.annotation.Annotation;
 import java.lang.reflect.Method;
 import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
 public class CommandManager {
     private final JavaPlugin plugin;
 
-    private final Map<String, Long> cooldowns = new HashMap<>();
+    private final Map<UUID, Map<String, CooldownEntry>> cooldowns = new ConcurrentHashMap<>();
+    private final Map<String, CommandData> commands = new ConcurrentHashMap<>();
 
     public CommandManager(JavaPlugin plugin) {
         this.plugin = plugin;
+        startCooldownCleanupTask();
     }
 
     public void register(CommandBase instance) {
@@ -48,44 +56,67 @@ public class CommandManager {
                 continue;
             }
 
+            boolean playerOnly = method.isAnnotationPresent(PlayerOnly.class);
+            boolean opOnly = method.isAnnotationPresent(OpOnly.class);
+            boolean consoleOnly = method.isAnnotationPresent(ConsoleOnly.class);
+            HasPermission[] hasPermission = method.getAnnotationsByType(HasPermission.class);
+
             Method completerMethod = findCompleter(instance.getClass(), cmd.name());
 
+            method.setAccessible(true);
+
+            if (completerMethod != null) {
+                completerMethod.setAccessible(true);
+            }
+
+            CommandData commandData = new CommandData(
+                    cmd.name(),
+                    method,
+                    completerMethod,
+                    getPermissions(hasPermission),
+                    playerOnly,
+                    consoleOnly,
+                    opOnly,
+                    cmd.cooldown(),
+                    Collections.emptyMap()
+            );
+
+            commands.put(cmd.name(), commandData);
+
             pc.setExecutor((sender, command, label, args) -> {
-                // Check command is for players only
-                if (getAnnotation(method, PlayerOnly.class) != null && !(sender instanceof Player)) {
+                CommandData data = commands.get(command.getName());
+                if (data == null) return true;
+
+                if (data.isPlayerOnly() && !(sender instanceof Player)) {
                     instance.onPlayerOnly(sender);
                     return true;
                 }
 
-                // Check command is for operator only
-                if (getAnnotation(method, OpOnly.class) != null && !sender.isOp()) {
+                if (data.isOpOnly() && !sender.isOp()) {
                     instance.onNoPermission(sender);
                     return true;
                 }
 
-                // Check command is for console sender only
-                if (getAnnotation(method, ConsoleOnly.class) != null && !(sender instanceof ConsoleCommandSender)) {
+                if (data.isConsoleOnly() && !(sender instanceof ConsoleCommandSender)) {
                     instance.onConsoleOnly(sender);
                     return true;
                 }
 
-                // Check for permissions
-                if (!hasPermission(instance, method, sender)) {
+                if (!hasPermission(data.getPermissions(), sender)) {
                     instance.onNoPermission(sender);
                     return true;
                 }
 
-                // Check player is on cooldown or not
-                if (isOnCooldown(sender, cmd.name(), cmd.cooldown(), instance)) {
+                if (isOnCooldown(sender, data.getName(), data.getCooldown(), instance)) {
                     return true;
                 }
 
-                invoke(instance, method, sender, args);
+                invoke(instance, data.getMethod(), sender, args);
                 return true;
             });
 
-            if (completerMethod != null) {
-                pc.setTabCompleter((sender, command, alias, args) -> invokeCompleter(instance, completerMethod, sender, args));
+            if (commandData.getCompleter() != null) {
+                pc.setTabCompleter((sender, command, alias, args) -> invokeCompleter(instance, commandData.getCompleter(), sender, args));
             }
         }
     }
@@ -99,41 +130,81 @@ public class CommandManager {
             return;
         }
 
-        Map<String, Method> subCommands = new HashMap<>();
-        Map<String, Method> completers = new HashMap<>();
+        Map<String, SubCommandData> subCommands = new ConcurrentHashMap<>();
 
         for (Method method : instance.getClass().getDeclaredMethods()) {
-            // Put sub command in command sub commands
-            SubCommand subCommand = getAnnotation(method, SubCommand.class);
+            SubCommand subCommand = method.getAnnotation(SubCommand.class);
             if (subCommand != null) {
-                subCommands.put(subCommand.value().toLowerCase(), method);
-            }
 
-            Completer completer = getAnnotation(method, Completer.class);
-            if (completer != null) {
-                completers.put(completer.value().toLowerCase(), method);
+                boolean playerOnly = method.isAnnotationPresent(PlayerOnly.class);
+                boolean opOnly = method.isAnnotationPresent(OpOnly.class);
+                boolean consoleOnly = method.isAnnotationPresent(ConsoleOnly.class);
+                HasPermission[] hasPermission = method.getAnnotationsByType(HasPermission.class);
+
+                Method completerMethod = findCompleter(
+                        instance.getClass(),
+                        subCommand.value()
+                );
+
+                method.setAccessible(true);
+                if (completerMethod != null) completerMethod.setAccessible(true);
+
+                SubCommandData subCommandData = new SubCommandData(
+                        subCommand.value(),
+                        completerMethod,
+                        method,
+                        getPermissions(hasPermission),
+                        playerOnly,
+                        consoleOnly,
+                        opOnly,
+                        subCommand.cooldown(),
+                        subCommand.minArgs(),
+                        subCommand.usage()
+                );
+
+                subCommands.put(subCommand.value().toLowerCase(), subCommandData);
             }
         }
 
+        boolean playerOnly = instance.getClass().isAnnotationPresent(PlayerOnly.class);
+        boolean opOnly = instance.getClass().isAnnotationPresent(OpOnly.class);
+        boolean consoleOnly = instance.getClass().isAnnotationPresent(ConsoleOnly.class);
+        HasPermission[] hasPermission = instance.getClass().getAnnotationsByType(HasPermission.class);
+
+        CommandData commandData = new CommandData(
+                rootCommand.name(),
+                null,
+                null,
+                getPermissions(hasPermission),
+                playerOnly,
+                consoleOnly,
+                opOnly,
+                rootCommand.cooldown(),
+                subCommands
+        );
+
+        commands.put(rootCommand.name(), commandData);
+
         pc.setExecutor((sender, command, label, args) -> {
-            // Check command is player only
-            if (getAnnotation(instance.getClass(), PlayerOnly.class) != null && !(sender instanceof Player)) {
+            CommandData data = commands.get(command.getName());
+            if (data == null) return true;
+
+            if (data.isPlayerOnly() && !(sender instanceof Player)) {
                 instance.onPlayerOnly(sender);
                 return true;
             }
-            // Get required permissions
-            HasPermission[] commandPermissions = getAnnotations(instance.getClass(), HasPermission.class);
-            boolean hasCommandPermission = true;
-            if (commandPermissions != null) {
-                for (HasPermission node : commandPermissions) {
-                    if (!sender.hasPermission(node.value())) {
-                        hasCommandPermission = false;
-                    }
-                }
+
+            if (data.isOpOnly() && !sender.isOp()) {
+                instance.onNoPermission(sender);
+                return true;
             }
 
-            // If player has not permission
-            if (!hasCommandPermission) {
+            if (data.isConsoleOnly() && !(sender instanceof ConsoleCommandSender)) {
+                instance.onConsoleOnly(sender);
+                return true;
+            }
+
+            if (!hasPermission(data.getPermissions(), sender)) {
                 instance.onNoPermission(sender);
                 return true;
             }
@@ -143,52 +214,44 @@ public class CommandManager {
                 return true;
             }
 
-            Method method = subCommands.get(args[0].toLowerCase());
-            if (method == null) {
+            SubCommandData subCommandData = data.getSubCommands().get(args[0].toLowerCase());
+            if (subCommandData == null) {
                 instance.onInvalidUsage(sender, "");
                 return true;
             }
 
-            SubCommand subCommand = method.getAnnotation(SubCommand.class);
-
-            PlayerOnly playerOnly = getAnnotation(method, PlayerOnly.class);
-            if (playerOnly != null && !(sender instanceof Player)) {
+            if (subCommandData.isPlayerOnly() && !(sender instanceof Player)) {
                 instance.onPlayerOnly(sender);
                 return true;
             }
 
-            // Check sub command is op only or not
-            ConsoleOnly consoleOnly = getAnnotation(method, ConsoleOnly.class);
-            if (consoleOnly != null && !(sender instanceof Player)) {
+            if (subCommandData.isOpOnly() && !sender.isOp()) {
+                instance.onNoPermission(sender);
+                return true;
+            }
+
+            if (subCommandData.isConsoleOnly() && !(sender instanceof ConsoleCommandSender)) {
                 instance.onConsoleOnly(sender);
                 return true;
             }
 
-            // Check sub command is console only or not
-            OpOnly opOnly = getAnnotation(method, OpOnly.class);
-            if (opOnly != null && !(sender instanceof Player)) {
+            if (!hasPermission(subCommandData.getPermissions(), sender)) {
                 instance.onNoPermission(sender);
-                return true;
-            }
-
-            if(!hasPermission(instance, method, sender)) {
-                instance.onNoPermission(sender);
-                return true;
-            }
-
-            String cooldownKey = rootCommand.name() + ":" + subCommand.value();
-            if (isOnCooldown(sender, cooldownKey, subCommand.cooldown(), instance)) {
                 return true;
             }
 
             String[] remainingArgs = Arrays.copyOfRange(args, 1, args.length);
-
-            if (remainingArgs.length < subCommand.minArgs()) {
-                instance.onInvalidUsage(sender, subCommand.usage());
+            if (remainingArgs.length < subCommandData.getMinArgs()) {
+                instance.onInvalidUsage(sender, subCommandData.getUsage());
                 return true;
             }
 
-            invoke(instance, method, sender, remainingArgs);
+            String cooldownKey = rootCommand.name() + ":" + subCommandData.getValue();
+            if (isOnCooldown(sender, cooldownKey, subCommandData.getCooldown(), instance)) {
+                return true;
+            }
+
+            invoke(instance, subCommandData.getMethod(), sender, remainingArgs);
             return true;
         });
 
@@ -199,27 +262,38 @@ public class CommandManager {
                         .collect(Collectors.toList());
             }
 
-            Method completerMethod = completers.get(args[0].toLowerCase());
-            if (completerMethod == null) return Collections.emptyList();
+            SubCommandData data = subCommands.get(args[0].toLowerCase());
+
+            if (data == null) return Collections.emptyList();
+            if (data.getCompleter() == null) return Collections.emptyList();
+
 
             String[] remainingArgs = Arrays.copyOfRange(args, 1, args.length);
-            return invokeCompleter(instance, completerMethod, sender, remainingArgs);
+
+
+            return invokeCompleter(instance, data.getCompleter(), sender, remainingArgs);
         });
     }
 
-    private boolean hasPermission(CommandBase instance, Method method, CommandSender sender) {
-        // Get required permissions
-        HasPermission[] subCommandPermissions = getAnnotations(method, HasPermission.class);
-        boolean hasSubCommandPermission = true;
-        if (subCommandPermissions != null) {
-            for (HasPermission node : subCommandPermissions) {
-                if (!sender.hasPermission(node.value())) {
-                    hasSubCommandPermission = false;
-                }
+    private boolean hasPermission(Set<String> perms, CommandSender sender) {
+
+        for (String perm : perms) {
+            if (!sender.hasPermission(perm)) {
+                return false;
             }
         }
 
-        return hasSubCommandPermission;
+        return true;
+    }
+
+    private Set<String> getPermissions(HasPermission[] permissions) {
+        Set<String> nodes = new HashSet<>();
+
+        for (HasPermission permission : permissions) {
+            nodes.add(permission.value());
+        }
+
+        return Collections.unmodifiableSet(nodes);
     }
 
     private Method findCompleter(Class<?> clazz, String name) {
@@ -232,10 +306,11 @@ public class CommandManager {
         return null;
     }
 
+    @SuppressWarnings("unchecked")
     private List<String> invokeCompleter(CommandBase instance, Method method, CommandSender sender, String[] args) {
         try {
             Object result = method.invoke(instance, sender, args);
-            return (List<String>) result;
+            return result == null ? Collections.emptyList() : (List<String>) result;
         } catch (Exception e) {
             e.printStackTrace();
             return Collections.emptyList();
@@ -245,74 +320,81 @@ public class CommandManager {
     private void invoke(CommandBase instance, Method method, CommandSender sender, String[] args) {
         try {
             method.invoke(instance, sender, args);
-        } catch (Exception e) {
-            sender.sendMessage("Fail to execute command");
+        } catch (ReflectiveOperationException e) {
+            sender.sendMessage("An internal error occurred.");
+            plugin.getLogger().severe("Failed to execute /" + method.getName());
             e.printStackTrace();
         }
     }
 
     private boolean isOnCooldown(CommandSender sender, String cooldownKey, int cooldownSeconds, CommandBase instance) {
-        if (cooldownSeconds <= 0) return false;
-        if (!(sender instanceof Player)) return false;
-        Player player = (Player) sender;
+        if (cooldownSeconds <= 0) {
+            return false;
+        }
 
-        String key = player.getUniqueId() + ":" + cooldownKey;
+        if (!(sender instanceof Player player)) {
+            return false;
+        }
+
+        UUID uuid = player.getUniqueId();
+
+        Map<String, CooldownEntry> playerCooldowns = cooldowns.computeIfAbsent(uuid, k -> new ConcurrentHashMap<>());
+
         long now = System.currentTimeMillis();
-        long lastUse = cooldowns.getOrDefault(key, 0L);
-        long elapsedSeconds = (now - lastUse) / 1000;
 
-        if (elapsedSeconds < cooldownSeconds) {
-            long secondsLeft = cooldownSeconds - elapsedSeconds;
+        CooldownEntry entry = playerCooldowns.get(cooldownKey);
+
+        if (entry != null && !entry.isExpired(now)) {
+            long elapsedSeconds = (now - entry.getLastUse()) / 1000;
+            long secondsLeft = entry.getCooldownSeconds() - elapsedSeconds;
+
             instance.onCooldown(sender, secondsLeft);
             return true;
         }
 
-        cooldowns.put(key, now);
+        playerCooldowns.put(cooldownKey, new CooldownEntry(now, cooldownSeconds));
         return false;
-
     }
 
-    private <T extends Annotation> T getAnnotation(Method method, Class<T> annotation) {
-        try {
-            if (method.isAnnotationPresent(annotation)) {
-                return method.getAnnotation(annotation);
-            }
-            return null;
-        } catch (Exception exception) {
-            return null;
+    public void startCooldownCleanupTask() {
+        if (isFolia()) {
+            Bukkit.getAsyncScheduler().runAtFixedRate(plugin, task -> {
+                long now = System.currentTimeMillis();
+
+                for (Map.Entry<UUID, Map<String, CooldownEntry>> playerEntry : cooldowns.entrySet()) {
+                    Map<String, CooldownEntry> playerCooldowns = playerEntry.getValue();
+
+                    playerCooldowns.entrySet().removeIf(e -> e.getValue().isExpired(now));
+
+                    if (playerCooldowns.isEmpty()) {
+                        cooldowns.remove(playerEntry.getKey(), playerCooldowns);
+                    }
+                }
+            }, 30, 30, TimeUnit.MINUTES);
+        } else {
+            Bukkit.getScheduler().runTaskTimerAsynchronously(plugin, () -> {
+                long now = System.currentTimeMillis();
+
+                for (Map.Entry<UUID, Map<String, CooldownEntry>> playerEntry : cooldowns.entrySet()) {
+                    Map<String, CooldownEntry> playerCooldowns = playerEntry.getValue();
+
+                    playerCooldowns.entrySet().removeIf(e -> e.getValue().isExpired(now));
+
+                    if (playerCooldowns.isEmpty()) {
+                        cooldowns.remove(playerEntry.getKey(), playerCooldowns);
+                    }
+                }
+            }, 20L * 60 * 30, 20L * 60 * 30);
         }
     }
 
-    private <T extends Annotation> T[] getAnnotations(Method method, Class<T> annotation) {
+    private static boolean isFolia() {
         try {
-            if (method.isAnnotationPresent(annotation)) {
-                return method.getAnnotationsByType(annotation);
-            }
-            return null;
-        } catch (Exception exception) {
-            return null;
+            Class.forName("io.papermc.paper.threadedregions.RegionizedServer");
+            return true;
+        } catch (ClassNotFoundException e) {
+            return false;
         }
     }
 
-    private <T extends Annotation> T getAnnotation(Class<?> clazz, Class<T> annotation) {
-        try {
-            if (clazz.isAnnotationPresent(annotation)) {
-                return clazz.getAnnotation(annotation);
-            }
-            return null;
-        } catch (Exception exception) {
-            return null;
-        }
-    }
-
-    private <T extends Annotation> T[] getAnnotations(Class<?> clazz, Class<T> annotation) {
-        try {
-            if (clazz.isAnnotationPresent(annotation)) {
-                return clazz.getAnnotationsByType(annotation);
-            }
-            return null;
-        } catch (Exception exception) {
-            return null;
-        }
-    }
 }
