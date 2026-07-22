@@ -167,8 +167,8 @@ public class CommandManager {
 
                 SubCommandData subCommandData = new SubCommandData(
                         subCommand.value(),
-                        completerMethod,
                         method,
+                        completerMethod,
                         getPermissions(hasPermission),
                         playerOnly,
                         consoleOnly,
@@ -285,7 +285,6 @@ public class CommandManager {
 
 
             String[] remainingArgs = Arrays.copyOfRange(args, 1, args.length);
-
 
             return invokeCompleter(instance, data.getCompleter(), sender, remainingArgs);
         });
