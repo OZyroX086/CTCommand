@@ -2,6 +2,7 @@ package ir.ozyrox.ctcommand;
 
 import ir.ozyrox.ctcommand.annotation.Command;
 import ir.ozyrox.ctcommand.annotation.Completer;
+import ir.ozyrox.ctcommand.annotation.DefaultCommand;
 import ir.ozyrox.ctcommand.annotation.SubCommand;
 import ir.ozyrox.ctcommand.annotation.access.ConsoleOnly;
 import ir.ozyrox.ctcommand.annotation.access.HasPermission;
@@ -36,9 +37,24 @@ public class CommandManager {
     }
 
     public void register(CommandBase instance) {
+
         Class<?> clazz = instance.getClass();
 
-        if (clazz.isAnnotationPresent(Command.class)) {
+        if (!clazz.isAnnotationPresent(Command.class)) {
+            plugin.getLogger().warning(
+                    clazz.getName() + " missing @Command"
+            );
+            return;
+        }
+
+        Command command = clazz.getAnnotation(Command.class);
+
+
+        boolean hasSubCommands = Arrays.stream(clazz.getDeclaredMethods())
+                .anyMatch(m -> m.isAnnotationPresent(SubCommand.class));
+
+
+        if (hasSubCommands) {
             registerWithSubCommand(instance);
         } else {
             registerSimple(instance);
@@ -47,8 +63,8 @@ public class CommandManager {
 
     private void registerSimple(CommandBase instance) {
         for (Method method : instance.getClass().getDeclaredMethods()) {
-            if (!method.isAnnotationPresent(Command.class)) continue;
-            Command cmd = method.getAnnotation(Command.class);
+            if (!method.isAnnotationPresent(DefaultCommand.class)) continue;
+            Command cmd = instance.getClass().getAnnotation(Command.class);
 
             PluginCommand pc = plugin.getCommand(cmd.name());
             if (pc == null) {
@@ -56,10 +72,10 @@ public class CommandManager {
                 continue;
             }
 
-            boolean playerOnly = method.isAnnotationPresent(PlayerOnly.class);
-            boolean opOnly = method.isAnnotationPresent(OpOnly.class);
-            boolean consoleOnly = method.isAnnotationPresent(ConsoleOnly.class);
-            HasPermission[] hasPermission = method.getAnnotationsByType(HasPermission.class);
+            boolean playerOnly = instance.getClass().isAnnotationPresent(PlayerOnly.class);
+            boolean opOnly = instance.getClass().isAnnotationPresent(OpOnly.class);
+            boolean consoleOnly = instance.getClass().isAnnotationPresent(ConsoleOnly.class);
+            HasPermission[] hasPermission = instance.getClass().getAnnotationsByType(HasPermission.class);
 
             Method completerMethod = findCompleter(instance.getClass(), cmd.name());
 

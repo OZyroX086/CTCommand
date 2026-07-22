@@ -4,7 +4,9 @@ A lightweight annotation-based command framework for Paper/Folia/Spigot plugins.
 
 ## Features
 
-- Simple commands and subcommands via annotations
+- Class-based command registration
+- Simple commands using `@DefaultCommand`
+- Subcommands using `@SubCommand`
 - Automatic tab-completion per command/subcommand
 - Permission checks with `@HasPermission` (customizable messages)
 - Player-only (`@PlayerOnly`), console-only (`@ConsoleOnly`), and op-only (`@OpOnly`) restrictions
@@ -33,7 +35,7 @@ Add the dependency:
 <dependency>
     <groupId>com.github.ozyrox086</groupId>
     <artifactId>ctcommand</artifactId>
-    <version>v1.1.0</version>
+    <version>v1.2.0</version>
 </dependency>
 ```
 
@@ -88,52 +90,32 @@ commands:
     description: Manage economy
 ```
 
-### 3. Import
-
-```java
-import ir.ozyrox.ctcommand.CommandBase;
-import ir.ozyrox.ctcommand.CommandManager;
-import ir.ozyrox.ctcommand.annotation.Command;
-import ir.ozyrox.ctcommand.annotation.SubCommand;
-import ir.ozyrox.ctcommand.annotation.Completer;
-import ir.ozyrox.ctcommand.annotation.access.HasPermission;
-import ir.ozyrox.ctcommand.annotation.access.PlayerOnly;
-import ir.ozyrox.ctcommand.annotation.access.ConsoleOnly;
-import ir.ozyrox.ctcommand.annotation.access.OpOnly;
-```
-
 ## Simple command (no subcommands)
 
-Put `@Command` on the **method**. Access restrictions and permissions are applied via separate annotations.
+Put `@Command` on the **class** for both simple commands and subcommand-based commands.
 
 ```java
+@Command(name = "tp", cooldown = 3)
+@PlayerOnly
+@HasPermission("myplugin.tp")
 public class TeleportCommand extends CommandBase {
 
-    @Command(name = "tp", cooldown = 3)
-    @PlayerOnly
-    @HasPermission("myplugin.tp")
+    @DefaultCommand
     public void teleport(CommandSender sender, String[] args) {
+
         if (args.length < 1) {
             sender.sendMessage("§cUsage: /tp <player>");
             return;
         }
+
         Player target = Bukkit.getPlayer(args[0]);
+
         if (target == null) {
             sender.sendMessage("§cPlayer not found.");
             return;
         }
-        ((Player) sender).teleport(target);
-        sender.sendMessage("§aTeleported to " + target.getName());
-    }
 
-    @Completer("tp")
-    public List<String> tpCompleter(CommandSender sender, String[] args) {
-        if (args.length == 1) {
-            return Bukkit.getOnlinePlayers().stream()
-                    .map(Player::getName)
-                    .collect(Collectors.toList());
-        }
-        return List.of();
+        ((Player) sender).teleport(target);
     }
 }
 ```
@@ -143,7 +125,7 @@ public class TeleportCommand extends CommandBase {
 Put `@Command` on the **class**. Each method inside becomes a subcommand via `@SubCommand`. Class-level `@HasPermission` and `@PlayerOnly` apply to the entire root command.
 
 ```java
-@Command(name = "eco", cooldown = 5)
+@Command(name = "eco")
 @HasPermission("myplugin.eco")
 public class EconomyCommand extends CommandBase {
 
@@ -204,16 +186,41 @@ Running `/eco` with no arguments, or an unknown subcommand, triggers `onInvalidU
 
 Completer methods must have the signature `List<String> method(CommandSender sender, String[] args)`.
 
+### `@DefaultCommand`
+
+| Parameter | Default | Description |
+|-|-|-|
+| - | - | Marks the method as the main executor for a simple command |
+
+Used for simple commands without subcommands.
+
+Example:
+
+```java
+@Command(name = "spawn")
+public class SpawnCommand extends CommandBase {
+
+    @DefaultCommand
+    public void execute(CommandSender sender, String[] args) {
+
+    }
+}
+```
+
+The command method will be executed when the root command is called.
+
 ### Access & permission annotations
 
-These are placed on methods (or on the class for subcommand-style commands, where noted) to gate access:
+These can be placed on both classes and methods.
+Class-level restrictions apply to the entire command.
+Method-level restrictions apply to the selected command handler or subcommand.
 
 | Annotation | Target | Description |
 |---|---|---|
-| `@HasPermission("...")` | Method / class | Requires the sender to have the given permission node. Repeatable — all specified permissions must be held. |
-| `@PlayerOnly` | Method / class | Restricts the command to players only. Console senders are rejected with `onPlayerOnly`. |
-| `@ConsoleOnly` | Method | Restricts the command to console only. Players are rejected with `onConsoleOnly`. |
-| `@OpOnly` | Method | Restricts the command to server operators only. Non-ops are rejected with `onNoPermission`. |
+| `@HasPermission("...")` | Method / Class | Requires the sender to have the given permission node. Repeatable — all specified permissions must be held. |
+| `@PlayerOnly` | Method / Class | Restricts the command to players only. Console senders are rejected with `onPlayerOnly`. |
+| `@ConsoleOnly` | Method / Class | Restricts the command to console only. Players are rejected with `onConsoleOnly`. |
+| `@OpOnly` | Method / Class | Restricts the command to server operators only. Non-ops are rejected with `onNoPermission`. |
 
 For subcommand-style commands (class-level `@Command`), `@HasPermission` and `@PlayerOnly` can be placed on the class itself to gate the entire command before any subcommand logic runs.
 
@@ -255,8 +262,15 @@ If you don't override them, sensible defaults from `CommandBase` are used automa
 
 ## How it works
 
-- If the class itself is annotated with `@Command`, the manager treats every `@SubCommand`-annotated method inside as a subcommand of that root command. Class-level `@HasPermission` and `@PlayerOnly` are checked first, then the matched subcommand's method-level annotations are checked.
-- If `@Command` is placed directly on methods instead, each one is registered as its own independent command (no subcommands).
-- `@Completer("name")` links tab-completion to a command or subcommand with the matching name — for subcommands, it only kicks in *after* the subcommand name itself has been typed; before that, subcommand names are suggested automatically.
-- Cooldowns are tracked in memory, keyed by player UUID **and** command/subcommand name, so different commands don't share cooldowns with each other. Cooldowns reset when the server restarts, and don't apply to console.
-- `minArgs` is checked by the manager before your method runs, so you don't need to manually validate `args.length` for subcommands.
+- `@Command` is placed on command classes.
+- `@DefaultCommand` marks the executor for simple commands.
+- `@SubCommand` creates child commands under a root command.
+- Class-level annotations are inherited by all handlers inside the command.
+- Method-level annotations override or extend handler restrictions.
+- Cooldowns are tracked per player UUID and command key.
+- Cooldowns are not persisted and reset after server restart.
+- Console senders are ignored for cooldown checks.
+
+A command class can either contain:
+- One `@DefaultCommand` method for a simple command
+- One or more `@SubCommand` methods for grouped commands
